@@ -146,14 +146,16 @@ def register_tools(mcp: FastMCP, sm: SessionRegistry) -> None:
     async def connect(
         host: Annotated[str, Field(description="Windows hostname or IP to connect to, e.g. 'web-server-01'")],
         ctx: Context,
-        port: Annotated[int, Field(description="WinRM HTTP port, default 5985")] = 5985,
+        port: Annotated[int | None, Field(description="WinRM port. Defaults to 5985 for HTTP and 5986 for HTTPS")] = None,
+        use_ssl: Annotated[bool | None, Field(description="Use HTTPS transport. Leave unset to derive it from the port (5986 -> HTTPS, otherwise HTTP)")] = None,
+        verify_cert: Annotated[bool, Field(description="Validate the server TLS certificate on HTTPS. WARNING: setting this to false disables certificate validation and exposes the session to man-in-the-middle attacks - use only against hosts with a known self-signed certificate")] = True,
     ) -> dict[str, Any]:
         """Open a WinRM session to a Windows host and return a session_id; this is the required first step before any other tool. The AD password is elicited once and cached only in server memory, and the response includes computer name, OS version, and last boot time for triage.
         """
         auth_error = await _ensure_ad_password(ctx)
         if auth_error is not None:
             return auth_error
-        return sm.connect(host, port)
+        return sm.connect(host, port, use_ssl, verify_cert)
 
     @mcp.tool()
     def disconnect(

@@ -26,7 +26,7 @@
 
 | Tool | Description |
 |------|-------------|
-| `connect` | Open a WinRM session to a Windows host and return a `session_id` |
+| `connect` | Open a WinRM session to a Windows host and return a `session_id` (HTTP 5985 or HTTPS 5986 via `use_ssl`) |
 | `disconnect` | Close an active WinRM session |
 | `list_sessions` | List active WinRM sessions with usage details |
 

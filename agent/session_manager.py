@@ -27,6 +27,9 @@ audit = logging.getLogger("win-mcp.audit")
 
 MAX_OUTPUT_CHARS = 60_000
 
+DEFAULT_HTTP_PORT = 5985
+DEFAULT_HTTPS_PORT = 5986
+
 CLIXML_RE = re.compile(
     r"#< CLIXML\r?\n<Objs.*?</Objs>",
     re.DOTALL,
@@ -97,7 +100,7 @@ class SessionManager:
         self,
         username: str,
         password: str,
-        default_port: int = 5985,
+        default_port: int = DEFAULT_HTTP_PORT,
     ) -> None:
         self._username = username
         self._password = password
@@ -105,8 +108,26 @@ class SessionManager:
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.Lock()
 
-    def connect(self, host: str, port: int | None = None) -> dict[str, Any]:
-        port = port or self._default_port
+    def connect(
+        self,
+        host: str,
+        port: int | None = None,
+        use_ssl: bool | None = None,
+        verify_cert: bool = True,
+    ) -> dict[str, Any]:
+        """Open a WinRM session.
+
+        ``use_ssl`` selects the transport; when omitted it is derived from the
+        port (5986 -> HTTPS, anything else -> HTTP). ``verify_cert`` maps to
+        pywinrm's ``server_cert_validation`` and defaults to validating.
+        """
+        if use_ssl is None:
+            use_ssl = (port or self._default_port) == DEFAULT_HTTPS_PORT
+        if port is None:
+            port = DEFAULT_HTTPS_PORT if use_ssl else self._default_port
+
+        scheme = "https" if use_ssl else "http"
+        cert_validation = "validate" if verify_cert else "ignore"
         session_id = host if port == self._default_port else f"{host}:{port}"
 
         with self._lock:
@@ -121,9 +142,10 @@ class SessionManager:
 
         try:
             ws = winrm.Session(
-                f"http://{host}:{port}/wsman",
+                f"{scheme}://{host}:{port}/wsman",
                 auth=(self._username, self._password),
                 transport="ntlm",
+                server_cert_validation=cert_validation,
                 operation_timeout_sec=30,
                 read_timeout_sec=35,
             )
@@ -141,6 +163,7 @@ class SessionManager:
                     "user": self._username,
                     "host": host,
                     "port": str(port),
+                    "transport": scheme,
                     "error": stderr[:200],
                 })
                 return {"error": f"Connection test failed: {stderr}"}
@@ -156,6 +179,8 @@ class SessionManager:
                 "status": "connected",
                 "host": host,
                 "port": port,
+                "transport": scheme,
+                "cert_validation": cert_validation,
                 "computer_name": parts[0] if parts else raw,
             }
             if len(parts) >= 4:
@@ -169,6 +194,8 @@ class SessionManager:
                 "session": session_id,
                 "host": host,
                 "port": str(port),
+                "transport": scheme,
+                "cert_check": cert_validation,
                 "computer": info.get("computer_name", ""),
                 "os": info.get("os", ""),
                 "os_version": info.get("os_version", ""),
@@ -181,9 +208,15 @@ class SessionManager:
                 "user": self._username,
                 "host": host,
                 "port": str(port),
+                "transport": scheme,
                 "error": str(e)[:300],
             })
-            result: dict[str, Any] = {"error": str(e), "host": host, "port": port}
+            result: dict[str, Any] = {
+                "error": str(e),
+                "host": host,
+                "port": port,
+                "transport": scheme,
+            }
             if _is_auth_failure(e):
                 result["auth_failed"] = True
             return result
@@ -333,7 +366,7 @@ class SessionRegistry:
 
     def __init__(
         self,
-        default_port: int = 5985,
+        default_port: int = DEFAULT_HTTP_PORT,
         password_idle_ttl_seconds: int = 3600,
     ) -> None:
         self._managers: dict[str, SessionManager] = {}
@@ -466,8 +499,14 @@ class SessionRegistry:
 
     # ---- delegate every public method ----
 
-    def connect(self, host: str, port: int | None = None) -> dict[str, Any]:
-        result = self._get().connect(host, port)
+    def connect(
+        self,
+        host: str,
+        port: int | None = None,
+        use_ssl: bool | None = None,
+        verify_cert: bool = True,
+    ) -> dict[str, Any]:
+        result = self._get().connect(host, port, use_ssl, verify_cert)
         if result.get("auth_failed"):
             self.invalidate_password()
         return result

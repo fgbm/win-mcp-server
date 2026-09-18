@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from agent.session_manager import SessionRegistry
@@ -128,8 +129,13 @@ def register_tools(mcp: FastMCP, sm: SessionRegistry) -> None:
             )
             if result.action != "accept":
                 return {"status": "cancelled", "message": "AD password entry cancelled"}
-        except Exception:
-            return {"error": "Elicitation unavailable - cannot prompt for AD password"}
+        except Exception as e:
+            return {
+                "error": (
+                    f"Cannot prompt for the AD password: {e} "
+                    "Send it in the X-AD-Password header instead."
+                )
+            }
 
         password = result.data if hasattr(result, "data") and result.data else ""
         if not password:
@@ -1298,16 +1304,29 @@ def register_tools(mcp: FastMCP, sm: SessionRegistry) -> None:
     # ==================================================================
 
     async def _confirm(ctx: Context, action: str, details: str) -> bool:
-        """Prompt the user to confirm a destructive/modifying action."""
+        """Prompt the user to confirm a destructive/modifying action.
+
+        The prompt asks for a boolean: fastmcp 4 removed the empty-schema
+        ``response_type=None`` form, which some clients rendered as an empty,
+        non-functional dialog. Anything other than an explicit accept carrying
+        True means no.
+        """
         try:
             result = await ctx.elicit(
                 message=f"Confirm {action}?\n\n{details}",
-                response_type=None,
+                response_type=bool,
+                response_title="Confirm",
+                response_description=f"Approve {action}",
             )
-            return result.action == "accept"
-        except Exception:
-            logger.error("Elicitation unavailable — rejecting modification (client must support elicitation)")
-            return False
+            return result.action == "accept" and result.data is True
+        except Exception as e:
+            # Fail closed, but say why: a declined prompt and a client that
+            # cannot prompt at all are different problems. Clients on the
+            # 2026-07-28 protocol have no back-channel for elicitation.
+            logger.error("Elicitation unavailable — rejecting modification: %s", e)
+            raise ToolError(
+                f"Cannot ask for confirmation, so {action} was not performed: {e}"
+            ) from e
 
     @mcp.tool()
     async def flush_dns(

@@ -119,6 +119,8 @@ Every request must carry the shared secret, as `Authorization: Bearer <token>` o
 
 `X-AD-User` is required. `X-AD-Password` is optional: omit it and the server prompts for the password once via MCP elicitation, caching it in memory.
 
+Password prompts and the confirmation dialogs of the write tools both use elicitation, which the MCP protocol removed in its `2026-07-28` revision. On a client that negotiates that revision the write tools refuse to run and say so instead of acting unconfirmed; pass the password in `X-AD-Password` to keep the read-only tools usable.
+
 ### Cursor (`mcp.json`)
 
 ```json

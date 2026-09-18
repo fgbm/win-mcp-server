@@ -113,6 +113,24 @@ docker compose -f docker-compose.yml -p win-mcp up -d --build --force-recreate
 
 `MCP_AUTH_TOKEN` is mandatory — the server refuses to start without it. The compose file publishes the port on `127.0.0.1` only; expose it wider only behind a TLS-terminating proxy.
 
+## Configuration
+
+Everything is configured through the environment; there is no config file.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MCP_AUTH_TOKEN` | — | Shared secret every request must present as `Authorization: Bearer <token>` or `X-MCP-Token`. **Required**: the server exits at startup when it is unset |
+| `MCP_BIND_HOST` | `127.0.0.1` | Address uvicorn listens on. The image overrides it to `0.0.0.0`, because inside a container reachability is decided by how the port is published |
+| `MCPO_PORT` | `8005` | Port uvicorn listens on |
+| `AD_PASSWORD_IDLE_TTL_SECONDS` | `3600` | How long a cached AD password survives without use. `0` disables expiry, keeping it until the process stops |
+| `SFTP_CRED_IDLE_TTL_SECONDS` | `3600` | Same idle TTL for cached SFTP credentials |
+| `LOG_DIR` | `/app/logs` | Directory for `win-mcp.log` and `win-mcp-audit.log`. Created `0700`, log files `0600` |
+| `LOG_LEVEL` | `INFO` | Level of the server log. Does not affect the audit trail, which is always written |
+| `LOG_MAX_BYTES` | `10485760` | Size at which a log file rotates |
+| `LOG_BACKUP_COUNT` | `5` | Rotated files kept per log |
+| `AUDIT_MAX_OUTPUT_CHARS` | `2000` | Characters of stdout/stderr per call kept in the audit trail. The agent still receives the full output |
+| `AUDIT_LOG_BODY` | `1` | `0`, `false`, `no` or `off` logs only call metadata: no command text, no output |
+
 ## Client setup
 
 Every request must carry the shared secret, as `Authorization: Bearer <token>` or `X-MCP-Token: <token>`. It is verified before `X-AD-User` is trusted: that header only names the caller and is the key of the in-memory password and session cache, so without the token anyone reaching the port could claim someone else's username.

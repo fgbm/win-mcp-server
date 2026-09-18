@@ -53,6 +53,18 @@ CLIXML_RE = re.compile(
 
 SEPARATOR = "═" * 80
 
+# WinRM runs powershell.exe with the console code page of the service, which on
+# a localized Windows has no room for the system's own language: PowerShell
+# replaces every unmappable character with "?" before the bytes ever leave the
+# host, so "Диспетчер печати" arrives as "????????? ??????" and no decoding on
+# this side can recover it. Switching the output encoding to UTF-8 first makes
+# the host emit the real characters. Wrapped in try/catch because a host
+# without a console attached raises on the assignment.
+UTF8_PREAMBLE = (
+    "try { [Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+    "$OutputEncoding = [Text.Encoding]::UTF8 } catch { }; "
+)
+
 
 @dataclass
 class _CachedPassword:
@@ -168,7 +180,8 @@ class SessionManager:
                 read_timeout_sec=35,
             )
             probe = (
-                "$os = Get-CimInstance Win32_OperatingSystem; "
+                UTF8_PREAMBLE
+                + "$os = Get-CimInstance Win32_OperatingSystem; "
                 "\"$env:COMPUTERNAME|$($os.Caption)|$($os.Version)|"
                 "$($os.LastBootUpTime.ToString('yyyy-MM-dd HH:mm:ss'))\""
             )
@@ -311,7 +324,9 @@ class SessionManager:
         with cmd_lock:
             try:
                 start = time.perf_counter()
-                result = ws.run_ps(command)
+                # The preamble is prepended for execution only; the audit log
+                # keeps the command the tool actually asked for.
+                result = ws.run_ps(UTF8_PREAMBLE + command)
                 elapsed_ms = int((time.perf_counter() - start) * 1000)
 
                 stdout = result.std_out.decode("utf-8", errors="replace")

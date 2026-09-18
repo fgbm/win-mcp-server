@@ -12,5 +12,10 @@ RUN chmod +x /app/entrypoint.sh
 
 RUN mkdir -p /app/logs
 
+# Inside the container all interfaces are fine — reachability is decided by
+# how the port is published. The code defaults to 127.0.0.1 for runs on a
+# host, where that default is what keeps the port off the network.
+ENV MCP_BIND_HOST=0.0.0.0
+
 WORKDIR /app
 ENTRYPOINT ["/app/entrypoint.sh"]

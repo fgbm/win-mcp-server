@@ -4,6 +4,8 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
 
+*English · [Русский](README.ru.md)*
+
 **A Windows MCP server for remote administration over WinRM/NTLM.** Diagnose, inspect, and manage any AD-joined Windows host from Cursor, Claude Code, Codex, or any MCP (Model Context Protocol) client. Connects using per-user credentials elicited at runtime. Passwords live only in server memory with an idle TTL and are never logged.
 
 - **40+ tools**: filesystem, services, registry, event logs, certificates, processes, network, scheduled tasks, and more

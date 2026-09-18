@@ -6,9 +6,16 @@ services:
     container_name: win-mcp-server
     restart: unless-stopped
     ports:
-      - "8005:8005"
+      # published on the loopback interface only; put a TLS proxy in front to
+      # expose it any wider
+      - "127.0.0.1:8005:8005"
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # required shared secret; the server refuses to start without it
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN:?set MCP_AUTH_TOKEN in .env}
+      # inside the container all interfaces are fine: the published port above
+      # is what limits reachability
+      - MCP_BIND_HOST=${MCP_BIND_HOST:-0.0.0.0}
       - PYTHONUNBUFFERED=1
     volumes:
       - ./logs:/app/logs

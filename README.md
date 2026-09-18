@@ -7,6 +7,7 @@
 **A Windows MCP server for remote administration over WinRM/NTLM.** Diagnose, inspect, and manage any AD-joined Windows host from Cursor, Claude Code, Codex, or any MCP (Model Context Protocol) client. Connects using per-user credentials elicited at runtime. Passwords live only in server memory with an idle TTL and are never logged.
 
 - **40+ tools**: filesystem, services, registry, event logs, certificates, processes, network, scheduled tasks, and more
+- **Shared-secret gate**: every request must present `MCP_AUTH_TOKEN` as a bearer token before its identity headers are trusted
 - **Per-user AD identity**: each request carries an `X-AD-User` header; the password is either supplied via the optional `X-AD-Password` header (no prompt) or elicited once and cached in-memory
 - **Zero secrets on disk**: no credentials in config files, env vars, or logs
 
@@ -104,10 +105,15 @@
 ## Quick Start
 
 ```bash
+echo "MCP_AUTH_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env
 docker compose -f docker-compose.yml -p win-mcp up -d --build --force-recreate
 ```
 
+`MCP_AUTH_TOKEN` is mandatory — the server refuses to start without it. The compose file publishes the port on `127.0.0.1` only; expose it wider only behind a TLS-terminating proxy.
+
 ## Client setup
+
+Every request must carry the shared secret, as `Authorization: Bearer <token>` or `X-MCP-Token: <token>`. It is verified before `X-AD-User` is trusted: that header only names the caller and is the key of the in-memory password and session cache, so without the token anyone reaching the port could claim someone else's username.
 
 `X-AD-User` is required. `X-AD-Password` is optional: omit it and the server prompts for the password once via MCP elicitation, caching it in memory.
 
@@ -120,6 +126,7 @@ docker compose -f docker-compose.yml -p win-mcp up -d --build --force-recreate
       "type": "http",
       "url": "http://localhost:8005/mcp",
       "headers": {
+        "Authorization": "Bearer <MCP_AUTH_TOKEN>",
         "X-AD-User": "<your-ad-username>",
         "X-AD-Password": "<your-ad-password>"
       }
@@ -132,6 +139,7 @@ docker compose -f docker-compose.yml -p win-mcp up -d --build --force-recreate
 
 ```bash
 claude mcp add --transport http win-mcp http://localhost:8005/mcp \
+  --header "Authorization: Bearer <MCP_AUTH_TOKEN>" \
   --header "X-AD-User: <your-ad-username>" \
   --header "X-AD-Password: <your-ad-password>"
 ```
@@ -141,7 +149,7 @@ claude mcp add --transport http win-mcp http://localhost:8005/mcp \
 ```toml
 [mcp_servers.win-mcp]
 url = "http://localhost:8005/mcp"
-http_headers = { "X-AD-User" = "<your-ad-username>", "X-AD-Password" = "<your-ad-password>" }
+http_headers = { "Authorization" = "Bearer <MCP_AUTH_TOKEN>", "X-AD-User" = "<your-ad-username>", "X-AD-Password" = "<your-ad-password>" }
 ```
 
 Any other MCP client works the same way: point it at the streamable HTTP endpoint and pass the headers.

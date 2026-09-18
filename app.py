@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Win-MCP Server — read-only Windows remote filesystem via WinRM."""
 
+import hmac
 import logging
 import logging.handlers
 import os
@@ -26,9 +27,32 @@ AD_PASSWORD_IDLE_TTL_SECONDS = int(
 )
 
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Extract per-user AD credentials from headers.
+def _load_auth_token() -> str:
+    """Read the shared secret every caller must present, or abort startup.
 
+    X-AD-User only names the caller; it is also the key of the password and
+    session cache, so without a secret anyone able to reach the port could
+    claim another user's name and inherit that user's cached password and open
+    WinRM sessions. Running without a token is therefore refused outright
+    rather than silently accepted.
+    """
+    token = os.environ.get("MCP_AUTH_TOKEN", "").strip()
+    if not token:
+        raise SystemExit(
+            "MCP_AUTH_TOKEN is not set. Generate a secret "
+            "(python3 -c 'import secrets; print(secrets.token_urlsafe(32))') "
+            "and pass it to the server; clients send it as "
+            "'Authorization: Bearer <token>' or 'X-MCP-Token: <token>'."
+        )
+    return token
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Authenticate the caller, then extract per-user AD credentials.
+
+    Every request must carry the shared secret, as an Authorization: Bearer
+    token or an X-MCP-Token header; it is checked before X-AD-User is trusted
+    for anything.
     X-AD-User is required.
     X-AD-Password is optional: when supplied it authenticates the caller with
     no prompts; when omitted the password is collected through MCP elicitation.
@@ -36,7 +60,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
     never logged.
     """
 
+    def __init__(self, app, auth_token: str) -> None:
+        super().__init__(app)
+        self._auth_token = auth_token
+
+    def _token_ok(self, request: Request) -> bool:
+        presented = request.headers.get("x-mcp-token", "").strip()
+        if not presented:
+            authorization = request.headers.get("authorization", "").strip()
+            scheme, _, value = authorization.partition(" ")
+            if scheme.lower() == "bearer":
+                presented = value.strip()
+        return bool(presented) and hmac.compare_digest(presented, self._auth_token)
+
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        if not self._token_ok(request):
+            return JSONResponse(
+                {"error": "Valid bearer token required"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         username = request.headers.get("x-ad-user", "").strip()
 
         if not username:
@@ -97,7 +141,9 @@ def main() -> None:
     _setup_logging()
     logger = logging.getLogger("win-mcp")
 
+    auth_token = _load_auth_token()
     port = int(os.environ.get("MCPO_PORT", "8005"))
+    bind_host = os.environ.get("MCP_BIND_HOST", "127.0.0.1")
 
     logger.info("PORT=%d", port)
 
@@ -109,11 +155,13 @@ def main() -> None:
     app = create_streamable_http_app(
         server=mcp,
         streamable_http_path="/mcp",
-        middleware=[Middleware(AuthMiddleware)],
+        middleware=[Middleware(AuthMiddleware, auth_token=auth_token)],
     )
 
-    logger.info("win-mcp-server starting (streamable-http on port %d)", port)
-    uvicorn.run(app, host=os.environ.get("MCP_BIND_HOST", "0.0.0.0"), port=port)
+    logger.info(
+        "win-mcp-server starting (streamable-http on %s:%d)", bind_host, port
+    )
+    uvicorn.run(app, host=bind_host, port=port)
 
 
 if __name__ == "__main__":

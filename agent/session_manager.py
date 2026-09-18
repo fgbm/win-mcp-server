@@ -2,6 +2,7 @@
 
 import contextvars
 import logging
+import os
 import re
 import threading
 import time
@@ -26,6 +27,21 @@ logger = logging.getLogger("win-mcp.sessions")
 audit = logging.getLogger("win-mcp.audit")
 
 MAX_OUTPUT_CHARS = 60_000
+
+# The audit trail keeps a short excerpt, not the payload: command output can
+# carry file contents, registry data, account lists and certificates, and the
+# log lives in clear text on the control machine. The full output still goes
+# to the agent in the tool response.
+AUDIT_MAX_OUTPUT_CHARS = int(os.environ.get("AUDIT_MAX_OUTPUT_CHARS", "2000"))
+
+# Set AUDIT_LOG_BODY=0 to record only the metadata fields of each call: no
+# command text, no stdout, no stderr.
+AUDIT_LOG_BODY = os.environ.get("AUDIT_LOG_BODY", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 
 DEFAULT_HTTP_PORT = 5985
 DEFAULT_HTTPS_PORT = 5986
@@ -72,6 +88,8 @@ def _ts() -> str:
 
 
 def _audit_block(header: str, fields: dict[str, str], body: str = "") -> None:
+    if not AUDIT_LOG_BODY:
+        body = ""
     lines = [f"\n{SEPARATOR}", f"{_ts()}  {header}", "─" * 80]
     for k, v in fields.items():
         lines.append(f"  {k:<14}: {v}")
@@ -301,6 +319,8 @@ class SessionManager:
                 stderr = _redact(_strip_clixml(raw_stderr))
 
                 truncated_stdout = _redact(_truncate(stdout))
+                audit_stdout = _truncate(truncated_stdout, AUDIT_MAX_OUTPUT_CHARS)
+                audit_stderr = _truncate(stderr, AUDIT_MAX_OUTPUT_CHARS)
 
                 _audit_block(
                     f"COMMAND #{cmd_num}{label}",
@@ -317,10 +337,10 @@ class SessionManager:
                         "  PS> " + _redact(command) + "\n"
                         "\n"
                         "  ── stdout ──\n"
-                        + _indent(truncated_stdout)
+                        + _indent(audit_stdout)
                         + (
-                            "\n\n  ── stderr ──\n" + _indent(stderr)
-                            if stderr
+                            "\n\n  ── stderr ──\n" + _indent(audit_stderr)
+                            if audit_stderr
                             else ""
                         )
                     ),

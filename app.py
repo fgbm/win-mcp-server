@@ -98,9 +98,34 @@ class AuthMiddleware(BaseHTTPMiddleware):
             current_user.reset(token)
 
 
+LOG_DIR_MODE = 0o700
+LOG_FILE_MODE = 0o600
+
+
+class _PrivateRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """RotatingFileHandler that keeps its file readable by its owner only.
+
+    The logs hold command text and command output, so the mode is reapplied on
+    every open — otherwise each rotation would create the new file with the
+    process umask.
+    """
+
+    def _open(self):  # type: ignore[override]
+        stream = super()._open()
+        try:
+            os.chmod(self.baseFilename, LOG_FILE_MODE)
+        except OSError:
+            pass
+        return stream
+
+
 def _setup_logging() -> None:
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    os.makedirs(LOG_DIR, exist_ok=True)
+    os.makedirs(LOG_DIR, mode=LOG_DIR_MODE, exist_ok=True)
+    try:
+        os.chmod(LOG_DIR, LOG_DIR_MODE)
+    except OSError:
+        pass
 
     root = logging.getLogger("win-mcp")
     root.setLevel(log_level)
@@ -116,7 +141,7 @@ def _setup_logging() -> None:
     file_fmt = logging.Formatter(
         "%(asctime)s [%(name)s] %(levelname)s %(message)s"
     )
-    file_handler = logging.handlers.RotatingFileHandler(
+    file_handler = _PrivateRotatingFileHandler(
         os.path.join(LOG_DIR, "win-mcp.log"),
         maxBytes=LOG_MAX_BYTES,
         backupCount=LOG_BACKUP_COUNT,
@@ -128,7 +153,7 @@ def _setup_logging() -> None:
     audit.setLevel(logging.INFO)
     audit.propagate = False
     audit_fmt = logging.Formatter("%(message)s")
-    audit_handler = logging.handlers.RotatingFileHandler(
+    audit_handler = _PrivateRotatingFileHandler(
         os.path.join(LOG_DIR, "win-mcp-audit.log"),
         maxBytes=LOG_MAX_BYTES,
         backupCount=LOG_BACKUP_COUNT,

@@ -153,3 +153,9 @@ http_headers = { "Authorization" = "Bearer <MCP_AUTH_TOKEN>", "X-AD-User" = "<yo
 ```
 
 Any other MCP client works the same way: point it at the streamable HTTP endpoint and pass the headers.
+
+## Logging
+
+`LOG_DIR` (default `/app/logs`) holds `win-mcp.log` and the audit trail `win-mcp-audit.log`; the directory is created `0700` and the files `0600`, reapplied on every rotation.
+
+The audit trail records each call with the PowerShell text and an excerpt of its output. Because that output can contain file contents, registry data, account lists and certificates, only the first `AUDIT_MAX_OUTPUT_CHARS` characters (default 2000) are written — the agent still receives the full response. Set `AUDIT_LOG_BODY=0` to log only call metadata: no command text, no output.

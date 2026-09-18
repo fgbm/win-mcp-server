@@ -361,12 +361,23 @@ class SessionManager:
                     ),
                 )
 
-                return {
+                payload: dict[str, Any] = {
                     "status_code": result.status_code,
                     "stdout": truncated_stdout,
                     "stderr": stderr,
                     "elapsed_ms": elapsed_ms,
                 }
+                if result.status_code != 0 and not stdout.strip() and not stderr:
+                    # A suppressed error (-ErrorAction SilentlyContinue) leaves
+                    # a non-zero exit code with nothing to read, which looks
+                    # like an empty result. Say what happened instead.
+                    payload["error"] = (
+                        f"Command failed with exit code {result.status_code} "
+                        "and produced no output. A cmdlet most likely reported "
+                        "an error that the command suppressed — often because "
+                        "nothing matched the requested filter."
+                    )
+                return payload
             except Exception as e:
                 logger.error("run_ps failed on %s: %s", session_id, _redact(str(e)))
                 _audit_block(f"COMMAND ERROR{label}", {

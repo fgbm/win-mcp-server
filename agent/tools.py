@@ -378,12 +378,20 @@ def register_tools(mcp: FastMCP, sm: SessionRegistry) -> None:
                 "| Where-Object { $_.ProviderName -like '" + safe_source + "' } "
             )
 
+        # An empty match makes Get-WinEvent report an error that
+        # -ErrorAction SilentlyContinue hides, leaving a bare non-zero exit
+        # code; collect first and say so plainly instead.
         cmd = (
-            "Get-WinEvent -FilterHashtable @{LogName='" + safe_log + "'; "
+            "$ev = @(Get-WinEvent -FilterHashtable @{LogName='" + safe_log + "'; "
             "Level=" + levels_str + "; "
             "StartTime=(Get-Date).AddHours(-" + str(hrs) + ")} "
             "-MaxEvents " + str(cap * 3) + " -ErrorAction SilentlyContinue "
             + source_filter +
+            "); "
+            "if ($ev.Count -eq 0) { Write-Output 'No events matched: log="
+            + safe_log + ", level=" + _ps_escape(level.strip() or "Error")
+            + " and higher, last " + str(hrs) + "h'; exit 0 }; "
+            "$ev "
             "| Select-Object -First " + str(cap) + " "
             "| ForEach-Object { "
             "\"$($_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')) "

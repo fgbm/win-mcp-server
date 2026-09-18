@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # the default bridge network of the builder has no route out on some
+      # hosts, which fails the pip step
+      network: host
     container_name: win-mcp-server
     restart: unless-stopped
     ports:
